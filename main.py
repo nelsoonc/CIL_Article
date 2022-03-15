@@ -54,7 +54,7 @@ throttle_list = []
 steering_list = []
 
 # PARAMETERS
-THROTTLE_TEST = 340
+THROTTLE_TEST = 345
 THROTTLE_IDLE = 305
 IMAGE_HEIGHT, IMAGE_WIDTH, IMAGE_CHANNEL = 100, 220, 3
 text_params = {'fontFace': cv2.FONT_HERSHEY_SIMPLEX,
@@ -194,12 +194,21 @@ def main_camera():
     model_right = load_model(MODEL_RIGHT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
     count = 0
 
+    # Trigerring forward propagation
+    image_test = np.random.uniform(size=(100, 220, 3))
+    image_test = np.reshape(image_test, (1, 100, 220, 3))
+
+    # Predict
+    steering_pred = float(predict(image_test, model_left))
+    steering_pred = float(predict(image_test, model_straight))
+    steering_pred = float(predict(image_test, model_right))
+
     # Remove last saved dataset folder
     if os.path.exists(SAVE_PATH):
         shutil.rmtree(SAVE_PATH)
     os.makedirs(SAVE_PATH)
     # read 5 first line from Arduino to prevent error
-    for i in range(10):
+    for i in range(5):
         if arduino.in_waiting > 0:
             line = arduino.readline().decode('utf-8').rstrip()
         else:
@@ -246,7 +255,7 @@ def main_camera():
                 steering_pred = float(predict(image_test, model_straight))
             if command == 'right':
                 steering_pred = float(predict(image_test, model_right))
-            throttle = THROTTLE_TEST + math.ceil(abs(steering_pred)*10)
+            throttle = THROTTLE_TEST
             steering = denormalize(steering_pred)
             pca9685.set_pwm(THROTTLE_CHANNEL, 0, throttle)
             pca9685.set_pwm(STEERING_CHANNEL, 0, steering)
