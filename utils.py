@@ -1,8 +1,10 @@
 """
+UTILITIES SCRIPT
+Performance Investigation on AV based on CIL
 Contains utilities method needed to process data
 @author : nelsoonc
 
-Undergraduate Thesis
+Continuation of Undergraduate Thesis
 Nelson Changgraini - Bandung Institute of Technology, Indonesia
 """
 
@@ -18,7 +20,6 @@ from imgaug import augmenters as iaa
 
 IMAGE_HEIGHT, IMAGE_WIDTH, IMAGE_CHANNEL = 100, 220, 3
 IMAGE_DIMENSION = (IMAGE_HEIGHT, IMAGE_WIDTH, IMAGE_CHANNEL)
-N_BIN = 2500
 
 
 def load_data(train_dataset, valid_dataset, command_flag):
@@ -30,6 +31,8 @@ def load_data(train_dataset, valid_dataset, command_flag):
 
     print('Importing data...')
 
+    filenames_train = []
+    filenames_valid = []
     if command_flag == 'left':
         filenames_train = df_train.filename[df_train.command=='left'].values
         y_train = df_train.steering[df_train.command=='left'].values
@@ -51,6 +54,57 @@ def load_data(train_dataset, valid_dataset, command_flag):
     for filename in filenames_train:
         img = cv2.imread(os.path.join(train_dataset, 'images', filename))
         X_train.append(img) # converted to 'list' since x = []
+    for filename in filenames_valid:
+        img = cv2.imread(os.path.join(valid_dataset, 'images', filename))
+        X_valid.append(img)
+
+    X_train = np.array(X_train)
+    X_valid = np.array(X_valid)
+    y_train = normalize(y_train)
+    y_valid = normalize(y_valid)
+
+    assert(X_train.shape[0] == y_train.shape[0]), 'The number of images is not equal to the number of labels'
+    print('Command:', command_flag)
+    print('[INFO] Total training dataset:', np.shape(X_train)[0])
+    print('[INFO] Total validation dataset:', np.shape(X_valid)[0])
+    print('')
+
+    return X_train, X_valid, y_train, y_valid
+
+def load_train_valid(train_dataset, valid_dataset, command_flag):
+    columns = ['filename', 'throttle', 'steering', 'command']
+    train_csv_path = os.path.join(train_dataset, 'dataset.csv')
+    df_train = pd.read_csv(train_csv_path, names=columns, header=0)
+    valid_csv_path = os.path.join(valid_dataset, 'dataset.csv')
+    df_valid = pd.read_csv(valid_csv_path, names=columns, header=0)
+
+    print('Importing data...')
+
+    filenames_train = []
+    filenames_valid = []
+    y_train = []
+    y_valid = []
+    if command_flag == 'left':
+        filenames_train = df_train.filename[df_train.command=='left'].values
+        y_train = df_train.steering[df_train.command=='left'].values
+        filenames_valid = df_valid.filename[df_valid.command=='left'].values
+        y_valid = df_valid.steering[df_valid.command == 'left'].values
+    elif command_flag == 'straight':
+        filenames_train = df_train.filename[df_train.command == 'straight'].values
+        y_train = df_train.steering[df_train.command=='straight'].values
+        filenames_valid = df_valid.filename[df_valid.command=='straight'].values
+        y_valid = df_valid.steering[df_valid.command == 'straight'].values
+    elif command_flag == 'right':
+        filenames_train = df_train.filename[df_train.command == 'right'].values
+        y_train = df_train.steering[df_train.command=='right'].values
+        filenames_valid = df_valid.filename[df_valid.command=='right'].values
+        y_valid = df_valid.steering[df_valid.command == 'right'].values
+    X_train = []
+    X_valid = []
+
+    for filename in filenames_train:
+        img = cv2.imread(os.path.join(train_dataset, 'images', filename))
+        X_train.append(img)  # converted to 'list' since x = []
     for filename in filenames_valid:
         img = cv2.imread(os.path.join(valid_dataset, 'images', filename))
         X_valid.append(img)

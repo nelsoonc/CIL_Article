@@ -1,14 +1,13 @@
 """
-Training script: End-to-end Driving using Conditional Imitation Learning
-1/10-scale RC car
+TRAINING SCRIPT
+Performance Investigation on AV based on CIL
+Contains script to train CIL model
 @author : nelsoonc
 
-Undergraduate Thesis
+Continuation of Undergraduate Thesis
 Nelson Changgraini - Bandung Institute of Technology, Indonesia
 """
 
-import os
-import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Model
@@ -37,7 +36,7 @@ params = {'batch_size': BATCH_SIZE,
 beta_1 = 0.7
 beta_2 = 0.85
 
-# VARIABLE
+# VARIABLES
 ml_train = []
 ml_val = []
 ml_lr = []
@@ -151,7 +150,7 @@ if __name__ == '__main__':
                             validation_data=DataGenerator(X_valid1, y_valid1, subset='valid', **params))
         print('straight')
         h2 = model_straight.fit(DataGenerator(X_train2, y_train2, subset='train', **params), epochs=1,
-                                steps_per_epoch=20,
+                                steps_per_epoch=25,
                                 validation_data=DataGenerator(X_valid2, y_valid2, subset='valid', **params))
         print('right')
         h3 = model_right.fit(DataGenerator(X_train3, y_train3, subset='train', **params), epochs=1,

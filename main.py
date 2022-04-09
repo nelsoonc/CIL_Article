@@ -1,9 +1,9 @@
 """
-Main script: Autonomous Driving using Conditional Imitation Learning
-Testing model on 1/10-scale RC car
+MAIN SCRIPT
+Performance Investigation on AV based on CIL
 @author : nelsoonc
 
-Undergraduate Thesis
+Continuation of Undergraduate Thesis
 Nelson Changgraini - Bandung Institute of Technology, Indonesia
 """
 
@@ -47,21 +47,25 @@ MODEL_STRAIGHT_PATH = 'models/model_straight.h5'
 MODEL_RIGHT_PATH = 'models/model_right.h5'
 DATASET_PATH = os.path.join(PARENT_DIR, 'dataset/images')
 CSV_PATH = os.path.join(PARENT_DIR, 'dataset/dataset.csv')
-SAVE_PATH = 'test_data/images'
-csv_filename = 'test_data/steering_testing.csv'
-image_filename_list = []
-throttle_list = []
-steering_list = []
+SAVE_PATH = os.path.join(os.getcwd(), 'test_dataset/images')
+TEST_CSV_PATH = os.path.join(os.getcwd(), 'test_dataset/steering_testing.csv')
 
 # PARAMETERS
 THROTTLE_TEST = 345
 THROTTLE_IDLE = 305
+STEERING_IDLE = 300
 IMAGE_HEIGHT, IMAGE_WIDTH, IMAGE_CHANNEL = 100, 220, 3
 text_params = {'fontFace': cv2.FONT_HERSHEY_SIMPLEX,
                'fontScale': 0.7,
                'color': (0,0,255),
                'thickness': 1,
                'lineType': cv2.LINE_AA}
+
+# VARIABLES
+image_filename_list = []
+throttle_list = []
+steering_list = []
+
 
 def rmse(y_true, y_pred):
     return K.sqrt(K.mean(K.square(y_pred - y_true), axis=-1))
@@ -82,6 +86,7 @@ def pulse_to_bit(pulse):
     return int(duty_cycle*4095)
 
 def pulse_to_mode(pulse):
+    mode = None
     if pulse < 1400: # bottom
         mode = 'manual'
     elif 1400 < pulse < 1600:
@@ -92,6 +97,7 @@ def pulse_to_mode(pulse):
     return mode
 
 def pulse_to_cmd(pulse):
+    command = None
     if pulse < 1400: # bottom
         command = 'left'
     elif 1400 < pulse < 1600:
@@ -102,6 +108,7 @@ def pulse_to_cmd(pulse):
     return command
 
 def pulse_to_save(pulse):
+    save = None
     if pulse < 1400:  # bottom
         save = 'yes'
     elif 1400 < pulse < 1600:
@@ -122,9 +129,11 @@ def normalize(pwm):
     return pwm
 
 def denormalize(pwm):
-    # Convert -1 to 1 steering value to bit
-    MAX_BIT = 407 # Left
-    MIN_BIT = 203 # Right
+    # Convert [-1,1]-value pwm to 12-bit format
+    MAX_BIT = 407  # left
+    MIN_BIT = 203  # right
+    MIN_THROTTLE = 177  # reverse
+    MAX_THROTTLE = 432  # forward
     pwm = MAX_BIT - (pwm + 1)/2 * (MAX_BIT - MIN_BIT)
 
     return int(pwm)
@@ -150,45 +159,7 @@ def predict(input_tensor, model):
     return model(input_tensor)
 
 
-# Testing on training dataset
-def main_dataset():
-    model_left = load_model(MODEL_LEFT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
-    model_straight = load_model(MODEL_STRAIGHT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
-    model_right = load_model(MODEL_RIGHT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
-    dataset = load_actual(csv_path=CSV_PATH)
-
-    for i in range(dataset.shape[0]):
-        start = time.time()
-        image_filename = dataset['filename'][i]
-        image = cv2.imread(DATASET_PATH + '/' + image_filename)
-        image_test = preprocess(image)
-        image_test = np.reshape(image_test, (1, 100, 220, 3))
-
-        # Predict
-        if dataset['command'][i] == 'left':
-            steering_pred = float(predict(image_test, model_left))
-        elif dataset['command'][i] == 'straight':
-            steering_pred = float(predict(image_test, model_straight))
-        elif dataset['command'][i] == 'right':
-            steering_pred = float(predict(image_test, model_right))
-
-        # Taking steering data from csv file
-        steering = dataset['steering'][i]
-        steering = normalize(steering)
-
-        cv2.putText(image, 'pred: {:.2f}'.format(steering_pred), (0, 330), **text_params)
-        cv2.putText(image, 'actual: {:.2f}'.format(steering), (0, 350), **text_params)
-        cv2.imshow('Image', image)
-        print(time.time() - start)
-
-        if cv2.waitKey(10) & 0xFF == 27:
-            break
-
-    # Stop system
-    cv2.destroyAllWindows()
-
-
-def main_camera():
+def main_camera(arduino, camera):
     model_left = load_model(MODEL_LEFT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
     model_straight = load_model(MODEL_STRAIGHT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
     model_right = load_model(MODEL_RIGHT_PATH, custom_objects={'rmse': rmse, 'lr': get_lr_metric})
@@ -197,11 +168,9 @@ def main_camera():
     # Trigerring forward propagation
     image_test = np.random.uniform(size=(100, 220, 3))
     image_test = np.reshape(image_test, (1, 100, 220, 3))
-
-    # Predict
-    steering_pred = float(predict(image_test, model_left))
-    steering_pred = float(predict(image_test, model_straight))
-    steering_pred = float(predict(image_test, model_right))
+    predict(image_test, model_left)
+    predict(image_test, model_straight)
+    predict(image_test, model_right)
 
     # Remove last saved dataset folder
     if os.path.exists(SAVE_PATH):
@@ -218,16 +187,23 @@ def main_camera():
     while True:
         if arduino.in_waiting > 0:
             line = arduino.readline().decode('utf-8').rstrip()
-            throttle = pulse_to_bit(int(line.split(',')[0]))
-            steering = pulse_to_bit(int(line.split(',')[1]))
-            mode = pulse_to_mode(int(line.split(',')[2]))
-            command = pulse_to_cmd(int(line.split(',')[3]))
-            save = pulse_to_save(int(line.split(',')[4]))
+            # throttle = pulse_to_bit(int(line.split(',')[0]))
+            # steering = pulse_to_bit(int(line.split(',')[1]))
+            # mode = pulse_to_mode(int(line.split(',')[2]))
+            # command = pulse_to_cmd(int(line.split(',')[3]))
+            # save = pulse_to_save(int(line.split(',')[4]))
+
+            # Without throttle and save reading
+            throttle = THROTTLE_IDLE
+            steering = pulse_to_bit(int(line.split(',')[0]))
+            mode = pulse_to_mode(int(line.split(',')[1]))
+            command = pulse_to_cmd(int(line.split(',')[2]))
+            save = None
         else:
             continue
 
         # Wait for a color frame
-        frames = pipeline.wait_for_frames()
+        frames = camera.wait_for_frames()
         color_frame = frames.get_color_frame()
         if not color_frame:
             continue
@@ -251,9 +227,9 @@ def main_camera():
             # Predict
             if command == 'left':
                 steering_pred = float(predict(image_test, model_left))
-            if command == 'straight':
+            elif command == 'straight':
                 steering_pred = float(predict(image_test, model_straight))
-            if command == 'right':
+            elif command == 'right':
                 steering_pred = float(predict(image_test, model_right))
             throttle = THROTTLE_TEST
             steering = denormalize(steering_pred)
@@ -279,56 +255,45 @@ def main_camera():
             break
 
     # Stop system
-    pipeline.stop()
+    camera.stop()
     arduino.close()
     cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    # Argument parser
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--mode", type=str,
-                        help="source of image: dataset or camera",
-                        choices=["dataset", "camera"],
-                        required=True)
-    args = parser.parse_args()
+    # Initialize Arduino using port /dev/ttyACM0 or static name
+    arduino = serial.Serial('/dev/ArduinoNano', 9600, timeout=1)
+    arduino.reset_input_buffer()
 
-    if args.mode == "dataset":
-        main_dataset()
+    # Initialize the PCA9685 using the default address (0x40).
+    # There are 2 I2C bus number in Jetson TX2, we're using the 1st bus here
+    pca9685 = Adafruit_PCA9685.PCA9685(address=0x40, busnum=1)
+    THROTTLE_CHANNEL = 0
+    STEERING_CHANNEL = 1
+    GEAR_CHANNEL = 3
+    # Set frequency to 50hz, because frequency from receiver is 50 Hz.
+    pca9685.set_pwm_freq(50)
 
-    elif args.mode == "camera":
-        # Initialize Arduino using port /dev/ttyACM0 or static name
-        arduino = serial.Serial('/dev/ArduinoNano', 9600, timeout=1)
-        arduino.flush()
+    # Configure camera depth and color streams
+    wC, hC = (640, 360)
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.color, wC, hC, rs.format.bgr8, 30)
+    # Start streaming
+    pipeline.start(config)
 
-        # Initialize the PCA9685 using the default address (0x40).
-        # There are 2 I2C bus number in Jetson TX2, we're using number 1 here
-        pca9685 = Adafruit_PCA9685.PCA9685(address=0x40, busnum=1)
-        THROTTLE_CHANNEL = 0
-        STEERING_CHANNEL = 1
-        GEAR_CHANNEL = 3
-        # Set frequency to 50hz, because frequency from receiver is 50 Hz.
-        pca9685.set_pwm_freq(50)
+    # Start main script
+    main_camera(arduino, pipeline)
 
-        # Configure camera depth and color streams
-        wC, hC = (640, 360)
-        pipeline = rs.pipeline()
-        config = rs.config()
-        config.enable_stream(rs.stream.color, wC, hC, rs.format.bgr8, 30)
-        # Start streaming
-        pipeline.start(config)
-
-        # Start main script
-        main_camera()
-
-    # Save steering to csv file
-    print("Saving testing data")
-    if os.path.exists(csv_filename):
-        os.remove(csv_filename)
-    columns = ['filename', 'throttle', 'steering']
-    dataset_dict = {'filename': image_filename_list,
-                    'throttle': throttle_list,
-                    'steering': steering_list}
-    dataset = pd.DataFrame(dataset_dict)
-    dataset.to_csv(csv_filename, index=False, columns=columns)
-    print("Done")
+    if len(image_filename_list) > 0:
+        # Save testing dataset to csv file
+        print("Saving testing data")
+        if os.path.exists(TEST_CSV_PATH):
+            os.remove(TEST_CSV_PATH)
+        columns = ['filename', 'throttle', 'steering']
+        dataset_dict = {'filename': image_filename_list,
+                        'throttle': throttle_list,
+                        'steering': steering_list}
+        dataset = pd.DataFrame(dataset_dict)
+        dataset.to_csv(TEST_CSV_PATH, index=False, columns=columns)
+        print("Done")
